@@ -8,25 +8,32 @@ export default async function handler(req, res) {
   try {
     const { messages, max_tokens } = req.body;
  
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: max_tokens || 1000,
-        messages,
-      }),
-    });
+    // Anthropic 형식 → Gemini 형식 변환
+    const contents = messages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: typeof m.content === 'string' ? m.content : m.content?.[0]?.text || '' }]
+    }));
+ 
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          generationConfig: { maxOutputTokens: max_tokens || 1000 }
+        }),
+      }
+    );
  
     const data = await response.json();
     if (!response.ok) return res.status(response.status).json(data);
  
-    // Anthropic 형식 그대로 반환 (앱과 호환)
-    return res.status(200).json(data);
+    // Gemini 형식 → Anthropic 형식으로 변환 (앱 코드와 호환)
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return res.status(200).json({
+      content: [{ type: 'text', text }]
+    });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
